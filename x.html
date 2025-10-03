@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mission Planner Data Viewer</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SheetJS (xlsx.js) for reading Excel files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- PapaParse for parsing CSV files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/papaparse/5.3.2/papaparse.min.js"></script>
+    <!-- Chart.js for creating graphs -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Custom styles for a better look and feel */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .file-input-label {
+            cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+        }
+        .file-input-label:hover {
+            background-color: #3b82f6; /* A slightly darker blue on hover */
+        }
+        .file-input-label:active {
+            transform: scale(0.98);
+        }
+        #dataTableContainer {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        /* Custom scrollbar for a cleaner look */
+        #dataTableContainer::-webkit-scrollbar {
+            width: 8px;
+        }
+        #dataTableContainer::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        #dataTableContainer::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        #dataTableContainer::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+    </style>
+     <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Mission Planner Data Logistics</h1>
+            <p class="text-gray-600 mt-2">Import your CSV or Excel files to view data and generate graphs.</p>
+        </header>
+
+        <main>
+            <!-- File Import Section -->
+            <div class="bg-white p-6 rounded-lg shadow-md mb-8 max-w-2xl mx-auto">
+                <h2 class="text-xl font-semibold mb-4 text-center">Import Your Data File</h2>
+                <div class="flex items-center justify-center">
+                    <label for="fileInput" class="file-input-label inline-block bg-blue-500 text-white font-bold py-3 px-6 rounded-lg shadow-sm">
+                        Select .CSV or .XLSX File
+                    </label>
+                    <input type="file" id="fileInput" class="hidden" accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel">
+                </div>
+                <div id="fileName" class="text-center mt-4 text-gray-500">No file selected</div>
+            </div>
+
+            <!-- Notification/Error Message Area -->
+            <div id="notification" class="hidden p-4 mb-4 text-sm text-red-700 bg-red-100 rounded-lg max-w-4xl mx-auto" role="alert">
+                <span class="font-medium">Error!</span> <span id="notification-message"></span>
+            </div>
+
+            <!-- Data Display and Graph Section (Initially Hidden) -->
+            <div id="dataSection" class="hidden">
+                <!-- Data Table Section -->
+                <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+                    <h2 class="text-2xl font-semibold mb-4">Data Table</h2>
+                    <div id="dataTableContainer" class="w-full border border-gray-200 rounded-lg">
+                        <table id="dataTable" class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <!-- Headers will be dynamically inserted here -->
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                <!-- Rows will be dynamically inserted here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Graph Generation Section -->
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <h2 class="text-2xl font-semibold mb-4">Graph Visualization</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        <div>
+                            <label for="xAxisSelect" class="block text-sm font-medium text-gray-700 mb-1">X-Axis</label>
+                            <select id="xAxisSelect" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></select>
+                        </div>
+                        <div>
+                            <label for="yAxisSelect" class="block text-sm font-medium text-gray-700 mb-1">Y-Axis</label>
+                            <select id="yAxisSelect" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"></select>
+                        </div>
+                        <div>
+                            <label for="chartTypeSelect" class="block text-sm font-medium text-gray-700 mb-1">Chart Type</label>
+                            <select id="chartTypeSelect" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                                <option value="line">Line Chart</option>
+                                <option value="bar">Bar Chart</option>
+                                <option value="scatter">Scatter Plot</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="relative h-96">
+                        <canvas id="dataChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const fileNameDisplay = document.getElementById('fileName');
+        const dataSection = document.getElementById('dataSection');
+        const dataTable = document.getElementById('dataTable');
+        const xAxisSelect = document.getElementById('xAxisSelect');
+        const yAxisSelect = document.getElementById('yAxisSelect');
+        const chartTypeSelect = document.getElementById('chartTypeSelect');
+        const notification = document.getElementById('notification');
+        const notificationMessage = document.getElementById('notification-message');
+        
+        let chartInstance = null;
+        let parsedData = { headers: [], rows: [] };
+
+        // Event listener for file input
+        fileInput.addEventListener('change', handleFile, false);
+        
+        // Event listeners for graph controls
+        xAxisSelect.addEventListener('change', generateChart);
+        yAxisSelect.addEventListener('change', generateChart);
+        chartTypeSelect.addEventListener('change', generateChart);
+
+        function showNotification(message) {
+            notificationMessage.textContent = message;
+            notification.classList.remove('hidden');
+        }
+
+        function hideNotification() {
+            notification.classList.add('hidden');
+        }
+
+        function handleFile(event) {
+            hideNotification();
+            const file = event.target.files[0];
+            if (!file) {
+                fileNameDisplay.textContent = 'No file selected';
+                return;
+            }
+
+            fileNameDisplay.textContent = Selected: ${file.name};
+            const fileExtension = file.name.split('.').pop().toLowerCase();
+
+            // Use appropriate parser based on file type
+            if (fileExtension === 'csv') {
+                parseCSV(file);
+            } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
+                parseExcel(file);
+            } else {
+                showNotification('Unsupported file type. Please select a .csv or .xlsx file.');
+                resetUI();
+            }
+        }
+
+        function parseCSV(file) {
+            Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    if (results.errors.length > 0) {
+                        showNotification('Error parsing CSV file. Please check the file format.');
+                        console.error("CSV Parsing Errors:", results.errors);
+                        resetUI();
+                        return;
+                    }
+                    if (results.data.length === 0) {
+                        showNotification('The selected file is empty.');
+                        resetUI();
+                        return;
+                    }
+                    const headers = results.meta.fields;
+                    const rows = results.data;
+                    processData(headers, rows);
+                },
+                error: function(error) {
+                    showNotification('An error occurred while reading the file.');
+                    console.error("PapaParse Error:", error);
+                    resetUI();
+                }
+            });
+        }
+
+        function parseExcel(file) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                try {
+                    const data = new Uint8Array(event.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const jsonRows = XLSX.utils.sheet_to_json(worksheet);
+                    
+                    if (jsonRows.length === 0) {
+                         showNotification('The selected file is empty or has no data in the first sheet.');
+                         resetUI();
+                         return;
+                    }
+                    
+                    const headers = Object.keys(jsonRows[0]);
+                    processData(headers, jsonRows);
+                } catch (error) {
+                    showNotification('Could not read the Excel file. It might be corrupted or in an unsupported format.');
+                    console.error("SheetJS Error:", error);
+                    resetUI();
+                }
+            };
+            reader.onerror = function(error) {
+                showNotification('An error occurred while reading the file.');
+                console.error("FileReader Error:", error);
+                resetUI();
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function processData(headers, rows) {
+            parsedData = { headers, rows };
+            populateTable(headers, rows);
+            populateSelects(headers);
+            dataSection.classList.remove('hidden');
+            generateChart();
+        }
+
+        function populateTable(headers, rows) {
+            // Clear existing table data
+            dataTable.innerHTML = ''; 
+
+            // Create table header
+            const thead = document.createElement('thead');
+            thead.className = 'bg-gray-100';
+            let headerRow = '<tr>';
+            headers.forEach(header => {
+                headerRow += <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${header}</th>;
+            });
+            headerRow += '</tr>';
+            thead.innerHTML = headerRow;
+            dataTable.appendChild(thead);
+            
+            // Create table body
+            const tbody = document.createElement('tbody');
+            tbody.className = 'bg-white divide-y divide-gray-200';
+            rows.slice(0, 100).forEach(row => { // Limiting to first 100 rows for performance
+                let rowHtml = '<tr>';
+                headers.forEach(header => {
+                    rowHtml += <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${row[header] || ''}</td>;
+                });
+                rowHtml += '</tr>';
+                tbody.innerHTML += rowHtml;
+            });
+            dataTable.appendChild(tbody);
+        }
+
+        function populateSelects(headers) {
+            xAxisSelect.innerHTML = '';
+            yAxisSelect.innerHTML = '';
+            headers.forEach((header, index) => {
+                const option = <option value="${header}">${header}</option>;
+                xAxisSelect.innerHTML += option;
+                yAxisSelect.innerHTML += option;
+            });
+
+            // Set default selections
+            if (headers.length > 1) {
+                xAxisSelect.selectedIndex = 0;
+                yAxisSelect.selectedIndex = 1;
+            }
+        }
+        
+        function generateChart() {
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            if (parsedData.rows.length === 0) return;
+
+            const xColumn = xAxisSelect.value;
+            const yColumn = yAxisSelect.value;
+            const chartType = chartTypeSelect.value;
+            
+            // Process data for both axes as numerical values, creating {x, y} points
+            const chartData = parsedData.rows.map(row => ({
+                x: parseFloat(row[xColumn]),
+                y: parseFloat(row[yColumn])
+            })).filter(point => !isNaN(point.x) && !isNaN(point.y));
+
+            const dataChartElement = document.getElementById('dataChart');
+            const ctx = dataChartElement.getContext('2d');
+
+            // Handle cases where selected columns have no valid numeric data
+            if (chartData.length === 0) {
+                 ctx.clearRect(0, 0, dataChartElement.width, dataChartElement.height); // Clear the canvas
+                 showNotification(No plottable numeric data for the selected columns: ${xColumn} and ${yColumn}.);
+                 return;
+            } else {
+                 hideNotification();
+            }
+
+            // Calculate min/max for both axes
+            const xData = chartData.map(p => p.x);
+            const yData = chartData.map(p => p.y);
+
+            let minX = Math.min(...xData);
+            let maxX = Math.max(...xData);
+            let minY = Math.min(...yData);
+            let maxY = Math.max(...yData);
+
+            let rangeX = maxX - minX;
+            let rangeY = maxY - minY;
+            
+            // Add 5% padding to prevent points from being on the very edge of the chart
+            const paddingX = rangeX > 0 ? rangeX * 0.05 : 1;
+            const paddingY = rangeY > 0 ? rangeY * 0.05 : 1;
+
+            minX -= paddingX;
+            maxX += paddingX;
+            minY -= paddingY;
+            maxY += paddingY;
+            
+            // Check if data is likely a geographical path
+            const isPathData = ((xColumn.toLowerCase().includes('lon') || xColumn.toLowerCase().includes('lng')) && yColumn.toLowerCase().includes('lat')) ||
+                               ((yColumn.toLowerCase().includes('lon') || yColumn.toLowerCase().includes('lng')) && xColumn.toLowerCase().includes('lat'));
+                               
+            // If it's a path, adjust axis ranges to match the container's aspect ratio, preventing distortion
+            if (isPathData) {
+                let currentRangeX = maxX - minX;
+                let currentRangeY = maxY - minY;
+
+                if (currentRangeX > 0 && currentRangeY > 0) {
+                    const chartContainer = dataChartElement.parentElement;
+                    const containerHeight = chartContainer.clientHeight || 1; 
+                    const containerAspect = chartContainer.clientWidth / containerHeight;
+                    
+                    const dataAspect = currentRangeX / currentRangeY;
+
+                    if (dataAspect > containerAspect) {
+                        // Data aspect is wider than container aspect -> increase Y-axis range
+                        const newRangeY = currentRangeX / containerAspect;
+                        const deltaY = newRangeY - currentRangeY;
+                        minY -= deltaY / 2;
+                        maxY += deltaY / 2;
+                    } else {
+                        // Data aspect is taller than container aspect -> increase X-axis range
+                        const newRangeX = currentRangeY * containerAspect;
+                        const deltaX = newRangeX - currentRangeX;
+                        minX -= deltaX / 2;
+                        maxX += deltaX / 2;
+                    }
+                }
+            }
+
+            chartInstance = new Chart(ctx, {
+                type: chartType,
+                data: {
+                    datasets: [{
+                        label: ${yColumn} vs ${xColumn},
+                        data: chartData,
+                        backgroundColor: 'rgba(59, 130, 246, 0.5)',
+                        borderColor: 'rgba(59, 130, 246, 1)',
+                        borderWidth: chartType === 'line' ? 2 : 1,
+                        pointRadius: chartType === 'scatter' ? 3 : 2,
+                        pointBackgroundColor: 'rgba(59, 130, 246, 1)',
+                        fill: chartType === 'line',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            min: minY,
+                            max: maxY,
+                            title: {
+                                display: true,
+                                text: yColumn
+                            }
+                        },
+                        x: {
+                            type: 'linear', // Treat x-axis as a numerical scale
+                            position: 'bottom',
+                            min: minX,
+                            max: maxX,
+                            title: {
+                                display: true,
+                                text: xColumn
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        tooltip: {
+                            mode: 'nearest',
+                            intersect: false,
+                        }
+                    }
+                }
+            });
+        }
+        
+        function resetUI() {
+            fileNameDisplay.textContent = 'No file selected';
+            fileInput.value = ''; // Clear the file input
+            dataSection.classList.add('hidden');
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+            dataTable.innerHTML = '';
+            parsedData = { headers: [], rows: [] };
+        }
+    </script>
+
+</body>
+</html>
